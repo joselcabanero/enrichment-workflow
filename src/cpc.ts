@@ -63,6 +63,18 @@ const SUBCLASS: Record<string, string> = {
   Y02P: "Climate mitigation in production",
 };
 
+/**
+ * Whether a CPC subclass describes an enabling technology — a genuine hint for
+ * a company's technology stack — rather than a product/application domain.
+ * Section A (human necessities: food, agriculture) and D/E (textiles,
+ * constructions) say what field an invention is in; B (operations, incl.
+ * additive manufacturing), C (chemistry/biotech), F–H (mechanical, physics,
+ * electricity) and Y describe how it is made, measured, or computed.
+ */
+export function isTechnologyCpc(subclass: string): boolean {
+  return !/^[ADE]/i.test(subclass);
+}
+
 /** Label for a CPC subclass code (e.g. "A23L"). */
 export function cpcLabel(subclass: string): string | undefined {
   const code = subclass.toUpperCase();

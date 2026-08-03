@@ -1,9 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getConfig } from "./config.js";
+import { isTechnologyCpc } from "./cpc.js";
 import type {
   CategoryAssignment,
   Classification,
   CompanyData,
+  CpcCluster,
   DimensionClassification,
   TaxonomyNode,
 } from "./types.js";
@@ -56,8 +58,21 @@ function profileText(c: CompanyData): string {
   }
   if (c.patents?.summary) parts.push(`IP summary: ${c.patents.summary}`);
   if (c.patents?.areas?.length) parts.push(`Patent areas: ${c.patents.areas.join(", ")}`);
-  if (c.patents?.cpc?.length) {
-    parts.push(`Patent CPC classes: ${c.patents.cpc.map((x) => `${x.code} ${x.label ?? ""}`.trim()).join(", ")}`);
+  const titles = [
+    ...(c.patents?.notable ?? []),
+    ...(c.patents?.recent ?? []).map((p) => p.title).filter((t): t is string => !!t),
+  ];
+  if (titles.length) parts.push(`Patent titles: ${[...new Set(titles)].slice(0, 8).join("; ")}`);
+  const cpc = c.patents?.cpc ?? [];
+  const fmtCpc = (x: CpcCluster) =>
+    `${x.code} ${x.label ?? ""}`.trim() + (x.count ? ` ×${x.count}` : "");
+  const techCpc = cpc.filter((x) => isTechnologyCpc(x.code));
+  const domainCpc = cpc.filter((x) => !isTechnologyCpc(x.code));
+  if (techCpc.length) {
+    parts.push(`Patent CPC — technology classes (genuine technology-stack hints): ${techCpc.map(fmtCpc).join(", ")}`);
+  }
+  if (domainCpc.length) {
+    parts.push(`Patent CPC — product/domain classes (indicate the field only, NOT the tech stack): ${domainCpc.map(fmtCpc).join(", ")}`);
   }
   if (c.headquarters?.country) parts.push(`HQ country: ${c.headquarters.country}`);
   return parts.join("\n");
@@ -144,9 +159,13 @@ function toResult(parsed: DimJson, nodes: TaxonomyNode[]): Omit<DimensionClassif
 
 const GUIDANCE =
   `Assign a term ONLY when the EVIDENCE above explicitly supports it — each rationale must ` +
-  `point to the specific evidence (a product, a stated technology, a patent area). Never infer ` +
-  `a term from sector membership, buzzwords, or plausibility ("a food company might use ML"). ` +
-  `Patent CPC classes indicate patent subject areas, not the company's technology stack. ` +
+  `point to the specific evidence (a product, a stated technology, a patent title or area). ` +
+  `Never infer a term from sector membership, buzzwords, or plausibility ("a food company ` +
+  `might use ML"). Patents are strong evidence — titles and areas document what the company ` +
+  `actually built. CPC classes come in two kinds, labelled in the evidence: technology classes ` +
+  `(e.g. B33Y additive manufacturing, C12P fermentation, G01N analysis) are genuine ` +
+  `technology-stack evidence; product/domain classes (e.g. A23L foods) only say what field ` +
+  `the invention is in and are NOT evidence of any technology. ` +
   `Three outcomes per dimension:\n` +
   `- "classified": evidence supports at least one term. Prefer the MOST SPECIFIC term that ` +
   `genuinely fits (a leaf); pick a parent only when no child fits — never assign both a term ` +
