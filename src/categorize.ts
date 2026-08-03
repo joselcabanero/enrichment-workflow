@@ -62,9 +62,10 @@ function blockSchema(ids: string[]) {
     type: "object",
     additionalProperties: false,
     properties: {
-      // enum guarantees the model can only return real taxonomy IDs.
-      primaryId: { type: ["string", "null"], enum: [...ids, null] },
-      primaryConfidence: { type: ["string", "null"], enum: ["low", "medium", "high", null] },
+      // enum guarantees the model can only return real taxonomy IDs. Nullable
+      // enums must be expressed as anyOf — a null inside `enum` is rejected.
+      primaryId: { anyOf: [{ type: "string", enum: ids }, { type: "null" }] },
+      primaryConfidence: { anyOf: [{ type: "string", enum: ["low", "medium", "high"] }, { type: "null" }] },
       primaryRationale: { type: ["string", "null"] },
       secondary: {
         type: "array",
@@ -73,7 +74,7 @@ function blockSchema(ids: string[]) {
           additionalProperties: false,
           properties: {
             id: { type: "string", enum: ids },
-            confidence: { type: ["string", "null"], enum: ["low", "medium", "high", null] },
+            confidence: { anyOf: [{ type: "string", enum: ["low", "medium", "high"] }, { type: "null" }] },
             rationale: { type: ["string", "null"] },
           },
           required: ["id", "confidence", "rationale"],
@@ -215,7 +216,10 @@ export async function categorize(
       };
     }
     return toResult(parsed as DimJson, flatNodes);
-  } catch {
+  } catch (err) {
+    // Classification is best-effort — never fail the enrichment over it. But do
+    // surface the cause on stderr so failures aren't silently swallowed.
+    console.error(`[categorize] classification failed: ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
 }
