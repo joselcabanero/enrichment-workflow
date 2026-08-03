@@ -169,7 +169,10 @@ const GUIDANCE =
   `Three outcomes per dimension:\n` +
   `- "classified": evidence supports at least one term. Prefer the MOST SPECIFIC term that ` +
   `genuinely fits (a leaf); pick a parent only when no child fits — never assign both a term ` +
-  `and its ancestor. Secondary terms only for genuine, material cross-cutting fit (usually 0-2). ` +
+  `and its ancestor. If the evidence clearly names a technology but no leaf matches it exactly, ` +
+  `assign the nearest parent term that covers it (e.g. evidence of UV spectroscopy with no UV ` +
+  `leaf → the spectroscopy parent) rather than abstaining — abstention is for missing evidence, ` +
+  `not missing leaves. Secondary terms only for genuine, material cross-cutting fit (usually 0-2). ` +
   `Give a confidence and a one-line rationale for each; use "low" confidence when you are ` +
   `speculating (low-confidence assignments are discarded).\n` +
   `- "not_applicable": the dimension genuinely does not apply — many companies, especially ` +
