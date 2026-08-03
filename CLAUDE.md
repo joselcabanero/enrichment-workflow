@@ -22,8 +22,19 @@ confidence, rationale, IDs in tooltips; classification also included in the raw-
 Note: nullable enum fields in the JSON schema must use `anyOf` — a `null` inside `enum` is a
 400 (fixed in `src/categorize.ts`).
 
-Next: sanity-review assignments with the user (esp. debatable primaries like Cocuus →
-`ma-yp-throughput`), then the cost-strategy work (see Key decisions below).
+**Classification v2 (2026-08-03, after user feedback):** evidence-gated. Three outcomes per
+dimension — classified / `notApplicable` (valid "no tech stack", e.g. CPG brands) /
+`needsReview`; low-confidence assignments dropped in post-processing (low primary → review);
+rationales must cite profile evidence; CPC codes explicitly not tech-stack evidence.
+Classification runs on `CLASSIFY_MODEL` (default `claude-sonnet-5`); web research stays on
+`RESEARCH_MODEL` haiku. Verified on the demo set: Brami + Foreverland tech stack →
+not applicable (previously hallucinated "Supervised Learning"); Cocuus tech stack improved to
+the specific `ts-mt-mg-foodprint` leaf. The model now abstains more (several needs-review) —
+by design.
+
+Next: user sanity-review of v2 assignments, then the cost-strategy work (see Key decisions
+below). If abstention is too aggressive, the lever is the GUIDANCE prompt in
+`src/categorize.ts`, not the confidence floor.
 
 ## Build / run
 ```bash

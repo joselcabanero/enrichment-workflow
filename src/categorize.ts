@@ -25,11 +25,11 @@ import type {
  */
 
 interface DimJson {
+  outcome: "classified" | "not_applicable" | "needs_review";
   primaryId: string | null;
   primaryConfidence: string | null;
   primaryRationale: string | null;
   secondary: { id: string; confidence: string | null; rationale: string | null }[];
-  needsReview: boolean;
 }
 
 function isBasicTier(model: string): boolean {
@@ -49,8 +49,15 @@ function profileText(c: CompanyData): string {
   if (c.categories?.length) parts.push(`Categories: ${c.categories.join(", ")}`);
   if (c.products?.length) parts.push(`Products: ${c.products.join(", ")}`);
   if (c.productStage) parts.push(`Stage: ${c.productStage}`);
+  if (c.trl?.rationale) parts.push(`TRL rationale: ${c.trl.rationale}`);
+  if (c.accelerators?.length) parts.push(`Accelerators: ${c.accelerators.join(", ")}`);
+  if (c.corporatePartners?.length) {
+    parts.push(`Corporate partners: ${c.corporatePartners.map((p) => (p.relationship ? `${p.name} (${p.relationship})` : p.name)).join(", ")}`);
+  }
+  if (c.patents?.summary) parts.push(`IP summary: ${c.patents.summary}`);
+  if (c.patents?.areas?.length) parts.push(`Patent areas: ${c.patents.areas.join(", ")}`);
   if (c.patents?.cpc?.length) {
-    parts.push(`CPC tech areas: ${c.patents.cpc.map((x) => `${x.code} ${x.label ?? ""}`.trim()).join(", ")}`);
+    parts.push(`Patent CPC classes: ${c.patents.cpc.map((x) => `${x.code} ${x.label ?? ""}`.trim()).join(", ")}`);
   }
   if (c.headquarters?.country) parts.push(`HQ country: ${c.headquarters.country}`);
   return parts.join("\n");
@@ -62,6 +69,7 @@ function blockSchema(ids: string[]) {
     type: "object",
     additionalProperties: false,
     properties: {
+      outcome: { type: "string", enum: ["classified", "not_applicable", "needs_review"] },
       // enum guarantees the model can only return real taxonomy IDs. Nullable
       // enums must be expressed as anyOf — a null inside `enum` is rejected.
       primaryId: { anyOf: [{ type: "string", enum: ids }, { type: "null" }] },
@@ -80,9 +88,8 @@ function blockSchema(ids: string[]) {
           required: ["id", "confidence", "rationale"],
         },
       },
-      needsReview: { type: "boolean" },
     },
-    required: ["primaryId", "primaryConfidence", "primaryRationale", "secondary", "needsReview"],
+    required: ["outcome", "primaryId", "primaryConfidence", "primaryRationale", "secondary"],
   };
 }
 
@@ -97,47 +104,72 @@ function dimLabel(slug: string): string {
   return slug.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Validate one parsed block against the dimension's nodes. */
+/**
+ * Validate one parsed block against the dimension's nodes and enforce the
+ * abstention rules in code, regardless of what the model returned:
+ * - outcome != classified → no assignments at all;
+ * - low/absent-confidence secondaries are dropped;
+ * - a low-confidence primary is discarded and the dimension flagged for review.
+ */
 function toResult(parsed: DimJson, nodes: TaxonomyNode[]): Omit<DimensionClassification, "dimension"> {
+  if (parsed.outcome === "not_applicable") return { notApplicable: true };
+  if (parsed.outcome !== "classified") return { needsReview: true };
+
   const nameById = new Map(nodes.map((t) => [t.id, t.name]));
-  const result: Omit<DimensionClassification, "dimension"> = { needsReview: !!parsed.needsReview };
-  if (parsed.primaryId && nameById.has(parsed.primaryId)) {
+  const result: Omit<DimensionClassification, "dimension"> = {};
+  const primaryConf = conf(parsed.primaryConfidence);
+  if (parsed.primaryId && nameById.has(parsed.primaryId) && primaryConf && primaryConf !== "low") {
     result.primary = {
       id: parsed.primaryId,
       name: nameById.get(parsed.primaryId)!,
-      ...(conf(parsed.primaryConfidence) ? { confidence: conf(parsed.primaryConfidence) } : {}),
+      confidence: primaryConf,
       ...(parsed.primaryRationale ? { rationale: parsed.primaryRationale } : {}),
     };
   }
+  if (!result.primary) return { needsReview: true };
   const secondary = (parsed.secondary ?? [])
-    .filter((s) => s.id && nameById.has(s.id) && s.id !== parsed.primaryId)
+    .filter((s) => {
+      const c = conf(s.confidence);
+      return s.id && nameById.has(s.id) && s.id !== parsed.primaryId && c && c !== "low";
+    })
     .map((s) => ({
       id: s.id,
       name: nameById.get(s.id)!,
-      ...(conf(s.confidence) ? { confidence: conf(s.confidence) } : {}),
+      confidence: conf(s.confidence)!,
       ...(s.rationale ? { rationale: s.rationale } : {}),
     }));
   if (secondary.length) result.secondary = secondary;
-  if (!result.primary) result.needsReview = true;
   return result;
 }
 
 const GUIDANCE =
-  `Prefer the MOST SPECIFIC term that genuinely fits (a leaf); pick a parent term only when ` +
-  `no child fits well — parents are implied by the hierarchy, never assign both a term and its ` +
-  `ancestor. Add secondary terms only for genuine, material cross-cutting fit (usually 0-2). ` +
-  `Give a confidence and a one-line rationale for each. If nothing fits well, set ` +
-  `primaryId=null and needsReview=true rather than forcing a category.`;
+  `Assign a term ONLY when the EVIDENCE above explicitly supports it — each rationale must ` +
+  `point to the specific evidence (a product, a stated technology, a patent area). Never infer ` +
+  `a term from sector membership, buzzwords, or plausibility ("a food company might use ML"). ` +
+  `Patent CPC classes indicate patent subject areas, not the company's technology stack. ` +
+  `Three outcomes per dimension:\n` +
+  `- "classified": evidence supports at least one term. Prefer the MOST SPECIFIC term that ` +
+  `genuinely fits (a leaf); pick a parent only when no child fits — never assign both a term ` +
+  `and its ancestor. Secondary terms only for genuine, material cross-cutting fit (usually 0-2). ` +
+  `Give a confidence and a one-line rationale for each; use "low" confidence when you are ` +
+  `speculating (low-confidence assignments are discarded).\n` +
+  `- "not_applicable": the dimension genuinely does not apply — many companies, especially ` +
+  `consumer food/CPG brands, have NO distinctive technology stack; if the company does not ` +
+  `demonstrably build or operationally rely on a technology as a differentiator, return ` +
+  `not_applicable rather than a guess.\n` +
+  `- "needs_review": the evidence is too thin to decide either way.\n` +
+  `When outcome is not_applicable or needs_review, set primaryId=null and secondary=[] — ` +
+  `abstain fully, never return a guess alongside.`;
 
 export async function categorize(
   company: CompanyData,
   taxonomy: TaxonomyNode[],
 ): Promise<Classification | undefined> {
   if (!taxonomy?.length) return undefined;
-  const { anthropicApiKey, researchModel } = getConfig();
+  const { anthropicApiKey, classifyModel } = getConfig();
   if (!anthropicApiKey) return undefined;
 
-  const model = researchModel ?? "claude-haiku-4-5";
+  const model = classifyModel ?? "claude-sonnet-5";
   const basic = isBasicTier(model);
 
   // Group nodes by dimension; a flat taxonomy is a single unnamed group.
@@ -171,15 +203,17 @@ export async function categorize(
       `orthogonal — classify the company INDEPENDENTLY within each one, using ONLY the ` +
       `given IDs (each dimension's IDs are valid only for that dimension).\n\n` +
       `TAXONOMY:\n${sections}\n\n` +
-      `COMPANY:\n${profileText(company)}\n\n` +
-      `For each dimension pick the single best primary term. ${GUIDANCE}`;
+      `COMPANY EVIDENCE (everything known about the company — judge only from this):\n` +
+      `${profileText(company)}\n\n` +
+      `For each dimension, decide the outcome and any supported terms. ${GUIDANCE}`;
   } else {
     schema = blockSchema(flatNodes.map((t) => t.id));
     prompt =
       `Classify this company strictly against the taxonomy below. Use ONLY the given IDs.\n\n` +
       `TAXONOMY:\n${termList(flatNodes)}\n\n` +
-      `COMPANY:\n${profileText(company)}\n\n` +
-      `Pick the single best primary category. ${GUIDANCE}`;
+      `COMPANY EVIDENCE (everything known about the company — judge only from this):\n` +
+      `${profileText(company)}\n\n` +
+      `Decide the outcome and any supported categories. ${GUIDANCE}`;
   }
 
   const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
@@ -208,7 +242,10 @@ export async function categorize(
     if (multi) {
       const dimensions: DimensionClassification[] = dimEntries.map(([slug, nodes]) => ({
         dimension: slug,
-        ...toResult(parsed[slug] ?? { needsReview: true }, nodes),
+        ...toResult(
+          parsed[slug] ?? { outcome: "needs_review", primaryId: null, primaryConfidence: null, primaryRationale: null, secondary: [] },
+          nodes,
+        ),
       }));
       return {
         dimensions,

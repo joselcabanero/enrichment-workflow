@@ -48,13 +48,23 @@ export interface CategoryAssignment {
   rationale?: string;
 }
 
-/** Classification within one dimension of a multi-dimensional taxonomy. */
+/**
+ * Classification within one dimension of a multi-dimensional taxonomy.
+ * Exactly one of three outcomes:
+ * - classified: `primary` set (+ optional `secondary`), both flags unset;
+ * - not applicable: `notApplicable` true — no term in this dimension applies
+ *   to this company (a valid answer, e.g. a CPG brand has no tech stack);
+ * - needs review: `needsReview` true — evidence too thin to decide; route to
+ *   a human.
+ */
 export interface DimensionClassification {
   /** Dimension slug, as carried on the taxonomy nodes (e.g. "application_domain"). */
   dimension: string;
   primary?: CategoryAssignment;
   secondary?: CategoryAssignment[];
-  /** True when nothing in this dimension fits well — route to manual review. */
+  /** True when this dimension genuinely does not apply to the company. */
+  notApplicable?: boolean;
+  /** True when nothing could be confidently assigned — route to manual review. */
   needsReview?: boolean;
 }
 
@@ -63,6 +73,8 @@ export interface Classification {
   /** Best single category (flat taxonomies; unset when `dimensions` is used). */
   primary?: CategoryAssignment;
   secondary?: CategoryAssignment[];
+  /** Flat taxonomies: true when no category genuinely applies (valid answer). */
+  notApplicable?: boolean;
   /**
    * Per-dimension results, present when the taxonomy nodes carry `dimension`
    * (e.g. Jarvis DB's application_domain / market_application / technology_stack).

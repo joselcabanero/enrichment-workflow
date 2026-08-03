@@ -32,8 +32,10 @@ export function renderMarkdown(
           let line = `**${label}:** ${fmt(d.primary)}`;
           if (d.secondary?.length) line += ` · also: ${d.secondary.map(fmt).join(", ")}`;
           lines.push(line);
+        } else if (d.notApplicable) {
+          lines.push(`**${label}:** — not applicable`);
         } else {
-          lines.push(`**${label}:** ⚠️ needs review — no match`);
+          lines.push(`**${label}:** ⚠️ needs review — no confident match`);
         }
       }
     } else if (classification.primary) {
@@ -43,8 +45,10 @@ export function renderMarkdown(
       }
       lines.push("", line);
       if (classification.primary.rationale) lines.push(`*${classification.primary.rationale}*`);
+    } else if (classification.notApplicable) {
+      lines.push("", "**Category:** — not applicable");
     } else if (classification.needsReview) {
-      lines.push("", "**Category:** ⚠️ needs review — no taxonomy match");
+      lines.push("", "**Category:** ⚠️ needs review — no confident taxonomy match");
     }
   }
 

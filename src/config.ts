@@ -39,8 +39,10 @@ export interface Config {
   epoConsumerKey?: string;
   epoConsumerSecret?: string;
   anthropicApiKey?: string;
-  /** Model for the web-research source; defaults to claude-opus-4-8. */
+  /** Model for the web-research source; defaults to claude-haiku-4-5. */
   researchModel?: string;
+  /** Model for taxonomy classification; defaults to claude-sonnet-5. */
+  classifyModel?: string;
 }
 
 function clean(v: string | undefined): string | undefined {
@@ -61,5 +63,8 @@ export function getConfig(): Config {
     // Cheap by default for DB-scale enrichment; bump to claude-sonnet-5 for
     // more reliable TRL / derived-field accuracy.
     researchModel: clean(process.env.RESEARCH_MODEL) ?? "claude-haiku-4-5",
+    // Classification judges a ~400-term taxonomy against sparse evidence —
+    // worth a stronger model than the research default.
+    classifyModel: clean(process.env.CLASSIFY_MODEL) ?? "claude-sonnet-5",
   };
 }
