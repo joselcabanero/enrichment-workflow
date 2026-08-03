@@ -1,0 +1,43 @@
+{
+  "name": "startup-enrich",
+  "version": "0.1.0",
+  "description": "Enrich a startup by name (and optional domain) from free-tier sources: Wikidata/Wikipedia, Apollo.io, OpenCorporates.",
+  "type": "module",
+  "bin": {
+    "enrich": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "enrich": "tsx src/cli.ts",
+    "start": "node dist/cli.js"
+  },
+  "keywords": [
+    "startup",
+    "enrichment",
+    "crunchbase-alternative",
+    "wikidata",
+    "apollo",
+    "opencorporates"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0"
+  }
+}
