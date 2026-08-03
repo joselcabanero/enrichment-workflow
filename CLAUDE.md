@@ -6,18 +6,18 @@ with **per-field provenance**, and (optionally) classifies the company against t
 taxonomy. Built for foodtech/agtech deal scouting (user = Eatable Adventures).
 
 ## Resume here (immediate next task)
-**Wire the user's taxonomy** for classification. The classify step is already built
-(`src/categorize.ts`) and consumes a taxonomy passed to `enrich({ taxonomy })` or via CLI
-`--taxonomy <path>`. The user will provide access to their **taxonomy/ontology from another
-repo** ("Jarvis DB"). Steps to resume:
-1. Read their taxonomy from the other repo; transform to `TaxonomyNode[]` =
-   `[{ id, name, description?, parentId? }]` (their stable IDs — echoed back so results join).
-2. Run classification on the 7 demo companies (needs `ANTHROPIC_API_KEY`) and add a **Category**
-   line to each artifact card.
-3. Confirm: leaf-node assignment + parent roll-up vs. top-vertical; single vs multi-label
-   (currently **primary + secondaries**, each with confidence + rationale + `needsReview`).
-- See memory: `taxonomy-classification.md` — **must use their ontology + their IDs; never invent
-  categories; enum-constrained; flag `needsReview` when nothing fits.**
+**Taxonomy is wired** (see memory: `taxonomy-classification.md` for where the ontology lives
+and how it was mapped). `TaxonomyNode` now carries an optional `dimension` slug; when present,
+`src/categorize.ts` classifies **independently per dimension in one API call** (per-dimension
+primary + secondaries, leaf-preferred, deprecated terms excluded, enum-constrained to the
+caller's IDs) and results land in `classification.dimensions`. Flat taxonomies behave as
+before. `scripts/export-taxonomy.ts <taxonomy-repo> [out.json]` produces the node file; the
+output is **gitignored — proprietary ontology, repo is public, never commit it**.
+
+Remaining (needs `ANTHROPIC_API_KEY`):
+1. Run classification on the 7 demo companies (`--taxonomy ./jarvis-taxonomy.json`).
+2. Add per-dimension **Category** lines to each card in the demo artifact.
+3. Sanity-review assignments with the user (esp. `needsReview` cases).
 
 ## Build / run
 ```bash

@@ -11,7 +11,7 @@ Usage:
 
 Options:
   --domain, -d   Optional domain/URL to disambiguate (e.g. stripe.com)
-  --taxonomy, -t Path to a taxonomy JSON file ([{id,name,description?,parentId?}])
+  --taxonomy, -t Path to a taxonomy JSON file ([{id,name,description?,parentId?,dimension?}])
                  to classify the company against (needs ANTHROPIC_API_KEY)
   --json         Output the full result as JSON
   --md           Output the markdown brief (default)

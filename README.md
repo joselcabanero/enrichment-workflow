@@ -67,6 +67,23 @@ fits. The `id`s come straight from your file, so results join back to your DB. A
 `enum` constrains the model to your IDs — it cannot return a category you didn't define. Needs
 `ANTHROPIC_API_KEY`; classification uses `RESEARCH_MODEL` (default `claude-haiku-4-5`).
 
+### Multi-dimensional taxonomies
+
+If your ontology has orthogonal dimensions (e.g. *application domain* / *market application* /
+*technology stack*), add a `dimension` slug to each node. The company is then classified
+**independently within each dimension** — one API call total — and the result carries
+`classification.dimensions` (one `{ dimension, primary, secondary, needsReview }` block per
+dimension) instead of a single top-level primary. The classifier prefers the most specific
+(leaf) term and never assigns a term together with its ancestor.
+
+`scripts/export-taxonomy.ts` converts a canonical-taxonomy repo (dimensions of terms with
+`id`/`name`/`parent_id`/`description`/`excludes`/`synonyms`/`examples`, deprecated terms
+dropped) into this flat node format:
+
+```bash
+npx tsx scripts/export-taxonomy.ts ../path-to-taxonomy-repo taxonomy.json
+```
+
 ## Programmatic use
 
 ```ts

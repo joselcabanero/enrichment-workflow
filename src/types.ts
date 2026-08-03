@@ -32,6 +32,12 @@ export interface TaxonomyNode {
   description?: string;
   /** Parent node ID, for hierarchical taxonomies. */
   parentId?: string;
+  /**
+   * Dimension slug for multi-dimensional taxonomies (e.g. "application_domain").
+   * When nodes carry dimensions, the company is classified independently within
+   * each dimension and {@link Classification.dimensions} is populated.
+   */
+  dimension?: string;
 }
 
 /** One category assignment against the caller's taxonomy. */
@@ -42,11 +48,28 @@ export interface CategoryAssignment {
   rationale?: string;
 }
 
-/** Result of classifying a company against the caller's taxonomy. */
-export interface Classification {
+/** Classification within one dimension of a multi-dimensional taxonomy. */
+export interface DimensionClassification {
+  /** Dimension slug, as carried on the taxonomy nodes (e.g. "application_domain"). */
+  dimension: string;
   primary?: CategoryAssignment;
   secondary?: CategoryAssignment[];
-  /** True when nothing in the taxonomy fits well — route to manual review. */
+  /** True when nothing in this dimension fits well — route to manual review. */
+  needsReview?: boolean;
+}
+
+/** Result of classifying a company against the caller's taxonomy. */
+export interface Classification {
+  /** Best single category (flat taxonomies; unset when `dimensions` is used). */
+  primary?: CategoryAssignment;
+  secondary?: CategoryAssignment[];
+  /**
+   * Per-dimension results, present when the taxonomy nodes carry `dimension`
+   * (e.g. Jarvis DB's application_domain / market_application / technology_stack).
+   * Each dimension is classified independently.
+   */
+  dimensions?: DimensionClassification[];
+  /** True when nothing in the taxonomy (or any dimension) fits well. */
   needsReview?: boolean;
 }
 

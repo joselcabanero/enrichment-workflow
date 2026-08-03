@@ -24,7 +24,19 @@ export function renderMarkdown(
   if (classification) {
     const fmt = (a: { name: string; confidence?: string }) =>
       `${a.name}${a.confidence ? ` (${a.confidence})` : ""}`;
-    if (classification.primary) {
+    if (classification.dimensions?.length) {
+      lines.push("");
+      for (const d of classification.dimensions) {
+        const label = d.dimension.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        if (d.primary) {
+          let line = `**${label}:** ${fmt(d.primary)}`;
+          if (d.secondary?.length) line += ` · also: ${d.secondary.map(fmt).join(", ")}`;
+          lines.push(line);
+        } else {
+          lines.push(`**${label}:** ⚠️ needs review — no match`);
+        }
+      }
+    } else if (classification.primary) {
       let line = `**Category:** ${fmt(classification.primary)}`;
       if (classification.secondary?.length) {
         line += ` · also: ${classification.secondary.map(fmt).join(", ")}`;

@@ -5,3 +5,5 @@ dist/
 !.env.example
 *.log
 .DS_Store
+# Proprietary ontology export (repo is public — never commit)
+jarvis-taxonomy*.json
