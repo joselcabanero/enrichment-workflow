@@ -14,10 +14,16 @@ caller's IDs) and results land in `classification.dimensions`. Flat taxonomies b
 before. `scripts/export-taxonomy.ts <taxonomy-repo> [out.json]` produces the node file; the
 output is **gitignored — proprietary ontology, repo is public, never commit it**.
 
-Remaining (needs `ANTHROPIC_API_KEY`):
-1. Run classification on the 7 demo companies (`--taxonomy ./jarvis-taxonomy.json`).
-2. Add per-dimension **Category** lines to each card in the demo artifact.
-3. Sanity-review assignments with the user (esp. `needsReview` cases).
+**Done (2026-08-03, live run):** all 7 demo companies classified per-dimension with a real
+`ANTHROPIC_API_KEY` (key lives in the local `.env`, gitignored). One `needsReview`: Brami's
+technology_stack (CPG brand, no distinctive tech — correct refusal). The demo artifact now
+shows a **Classification — Jarvis taxonomy** section per card (primary highlighted + secondaries,
+confidence, rationale, IDs in tooltips; classification also included in the raw-JSON details).
+Note: nullable enum fields in the JSON schema must use `anyOf` — a `null` inside `enum` is a
+400 (fixed in `src/categorize.ts`).
+
+Next: sanity-review assignments with the user (esp. debatable primaries like Cocuus →
+`ma-yp-throughput`), then the cost-strategy work (see Key decisions below).
 
 ## Build / run
 ```bash
