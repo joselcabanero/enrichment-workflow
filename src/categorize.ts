@@ -314,7 +314,7 @@ function aggregate(votesIn: DimVote[], lineage: Lineage): DimVote {
 }
 
 const GUIDANCE =
-  `Assign a term ONLY when the EVIDENCE above explicitly supports it — each rationale must ` +
+  `Assign a term ONLY when the COMPANY EVIDENCE explicitly supports it — each rationale must ` +
   `point to the specific evidence (a product, a stated technology, a patent title or area). ` +
   `Never infer a term from sector membership, buzzwords, or plausibility ("a food company ` +
   `might use ML"). Patents are strong evidence — titles and areas document what the company ` +
@@ -370,8 +370,13 @@ export async function categorize(
   const dimEntries = [...dims.entries()];
   const flatNodes = dimEntries[0]?.[1] ?? [];
 
+  // Prompt structure: everything stable per-taxonomy (intro, term list,
+  // guidance) is one cached text block; only the company evidence varies.
+  // The taxonomy is tens of thousands of tokens and identical across votes and
+  // companies — cached, votes after the first bill it at ~0.1x.
   let schema: Record<string, unknown>;
-  let prompt: string;
+  let staticPrefix: string;
+  let ask: string;
   if (multi) {
     schema = {
       type: "object",
@@ -384,23 +389,22 @@ export async function categorize(
     const sections = dimEntries
       .map(([slug, nodes]) => `## Dimension: ${dimLabel(slug)} (key: ${slug})\n${termList(nodes)}`)
       .join("\n\n");
-    prompt =
-      `Classify this company against a multi-dimensional taxonomy. The dimensions are ` +
+    staticPrefix =
+      `Classify a company against a multi-dimensional taxonomy. The dimensions are ` +
       `orthogonal — classify the company INDEPENDENTLY within each one, using ONLY the ` +
       `given IDs (each dimension's IDs are valid only for that dimension).\n\n` +
-      `TAXONOMY:\n${sections}\n\n` +
-      `COMPANY EVIDENCE (everything known about the company — judge only from this):\n` +
-      `${profileText(company)}\n\n` +
-      `For each dimension, decide the outcome and any supported terms. ${GUIDANCE}`;
+      `TAXONOMY:\n${sections}\n\n${GUIDANCE}`;
+    ask = `For each dimension, decide the outcome and any supported terms.`;
   } else {
     schema = blockSchema(flatNodes.map((t) => t.id));
-    prompt =
-      `Classify this company strictly against the taxonomy below. Use ONLY the given IDs.\n\n` +
-      `TAXONOMY:\n${termList(flatNodes)}\n\n` +
-      `COMPANY EVIDENCE (everything known about the company — judge only from this):\n` +
-      `${profileText(company)}\n\n` +
-      `Decide the outcome and any supported categories. ${GUIDANCE}`;
+    staticPrefix =
+      `Classify a company strictly against the taxonomy below. Use ONLY the given IDs.\n\n` +
+      `TAXONOMY:\n${termList(flatNodes)}\n\n${GUIDANCE}`;
+    ask = `Decide the outcome and any supported categories.`;
   }
+  const evidence =
+    `COMPANY EVIDENCE (everything known about the company — judge only from this):\n` +
+    `${profileText(company)}\n\n${ask}`;
 
   const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
     model,
@@ -408,13 +412,29 @@ export async function categorize(
     output_config: basic
       ? { format: { type: "json_schema", schema } }
       : { effort: "low", format: { type: "json_schema", schema } },
-    messages: [{ role: "user", content: prompt }],
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: staticPrefix, cache_control: { type: "ephemeral" } },
+          { type: "text", text: evidence },
+        ],
+      },
+    ],
   };
   if (!basic) params.thinking = { type: "adaptive" };
 
   const client = new Anthropic({ apiKey: anthropicApiKey });
+  const debug = !!process.env.CLASSIFY_DEBUG;
   const callOnce = async (): Promise<Record<string, DimJson> | DimJson> => {
     const response = await client.messages.create(params);
+    if (debug) {
+      const u = response.usage;
+      console.error(
+        `[categorize] vote usage: cache_write=${u.cache_creation_input_tokens ?? 0} ` +
+          `cache_read=${u.cache_read_input_tokens ?? 0} input=${u.input_tokens} output=${u.output_tokens}`,
+      );
+    }
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
@@ -429,30 +449,65 @@ export async function categorize(
   // Self-consistency: run the (identical) classify call N times and keep only
   // what a majority of votes agree on. Sampling noise on borderline cases
   // averages out; a single-vote fluke can no longer set a category.
-  const votes = Math.min(5, Math.max(1, classifyVotes ?? 3));
-  const settled = await Promise.allSettled(Array.from({ length: votes }, callOnce));
-  const ok = settled.filter(
-    (s): s is PromiseFulfilledResult<Record<string, DimJson> | DimJson> => s.status === "fulfilled",
-  );
-  if (!ok.length) {
-    const first = settled[0] as PromiseRejectedResult | undefined;
-    const err = first?.reason;
+  //
+  // Scheduling is cost-aware: vote 1 runs alone so it writes the prompt cache
+  // (concurrent identical requests all miss a cache still being written), the
+  // rest read it. Votes then run in two rounds — 3 first, and the remaining 2
+  // only when the first round disagrees somewhere (most companies are
+  // unanimous, saving ~40% of calls).
+  const votes = Math.min(5, Math.max(1, classifyVotes ?? 5));
+  const results: (Record<string, DimJson> | DimJson)[] = [];
+  let firstError: unknown;
+  const run = async (n: number): Promise<void> => {
+    const settled = await Promise.allSettled(Array.from({ length: n }, callOnce));
+    for (const s of settled) {
+      if (s.status === "fulfilled") results.push(s.value);
+      else firstError ??= s.reason;
+    }
+  };
+
+  const voteKey = (r: Record<string, DimJson> | DimJson): string =>
+    multi
+      ? dimEntries
+          .map(([slug]) => {
+            const d = (r as Record<string, DimJson>)[slug];
+            return `${slug}:${d?.outcome}|${d?.primaryId}`;
+          })
+          .join(" ")
+      : `${(r as DimJson).outcome}|${(r as DimJson).primaryId}`;
+
+  await run(1); // cache write
+  const round1 = Math.min(votes, 3);
+  if (round1 > 1) await run(round1 - 1);
+  let earlyStopped = false;
+  if (results.length && votes > round1) {
+    const unanimous = results.every((r) => voteKey(r) === voteKey(results[0]!));
+    if (unanimous && results.length === round1) earlyStopped = true;
+    else await run(votes - round1);
+  }
+
+  if (!results.length) {
     // Classification is best-effort — never fail the enrichment over it. But do
     // surface the cause on stderr so failures aren't silently swallowed.
-    console.error(`[categorize] classification failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(
+      `[categorize] classification failed: ${firstError instanceof Error ? firstError.message : String(firstError)}`,
+    );
     return undefined;
+  }
+  if (debug) {
+    console.error(`[categorize] votes used: ${results.length}${earlyStopped ? " (early-stopped, unanimous)" : ""}`);
   }
 
   const EMPTY: DimJson = { outcome: "needs_review", primaryId: null, primaryConfidence: null, primaryRationale: null, secondary: [] };
   if (multi) {
     const dimensions: DimensionClassification[] = dimEntries.map(([slug, nodes]) => ({
       dimension: slug,
-      ...aggregate(ok.map((s) => toResult((s.value as Record<string, DimJson>)[slug] ?? EMPTY, nodes)), buildLineage(nodes)),
+      ...aggregate(results.map((r) => toResult((r as Record<string, DimJson>)[slug] ?? EMPTY, nodes)), buildLineage(nodes)),
     }));
     return {
       dimensions,
       needsReview: dimensions.some((d) => d.needsReview),
     };
   }
-  return aggregate(ok.map((s) => toResult(s.value as DimJson, flatNodes)), buildLineage(flatNodes));
+  return aggregate(results.map((r) => toResult(r as DimJson, flatNodes)), buildLineage(flatNodes));
 }

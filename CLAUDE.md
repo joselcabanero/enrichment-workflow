@@ -44,7 +44,16 @@ the repeatable path for DB use. Known limit: for genuinely ~50/50 sibling pairs 
 (dominant sibling ↔ parent) — full determinism requires classify-once-and-store (DB cache,
 future). Those near-duplicate leaves are also taxonomy feedback for Jarvis DB.
 
-Next: cost-strategy remainder (DB cache w/ TTL, lazy enrichment, dedupe, credit budget).
+**Inference cost v1 (2026-08-04):** classify prompt split into cached static prefix
+(taxonomy + guidance, `cache_control: ephemeral`) + per-company evidence suffix; vote 1 runs
+alone (writes cache), rest read it; early-stop at 3 votes when unanimous on outcome+primaryId
+per dimension. `CLASSIFY_DEBUG=1` logs per-vote usage. Expected ~$0.40 → ~$0.06-0.09/company
+classify (warm). ⚠️ Live verification PENDING — API credits ran out again mid-test
+(2026-08-04); on top-up run the CLASSIFY_DEBUG verification in the plan (Brami = early-stop +
+cache write/read; Cocuus right after = all cache reads, escalates to 5).
+
+Next: cost-strategy remainder (DB cache w/ TTL, lazy enrichment, dedupe, credit budget,
+Batch API classify mode for bulk runs).
 
 ## Build / run
 ```bash

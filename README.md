@@ -75,6 +75,12 @@ term), contested sibling leaves resolve to the dominant one or their shared pare
 secondaries require unanimity. Each result is one of three outcomes rather than a forced
 guess:
 
+Cost: the taxonomy block (tens of thousands of tokens) is **prompt-cached** — only the first
+vote of the first company pays full price for it; later votes and companies within the cache
+TTL bill it at ~0.1×. Voting **early-stops at 3** when the first round is unanimous (most
+companies), running all `CLASSIFY_VOTES` only on genuinely contested profiles.
+`CLASSIFY_DEBUG=1` logs per-vote token usage.
+
 - **classified** — `primary` (+ optional `secondary`) with confidence and rationale.
   Low-confidence assignments are discarded in post-processing, never surfaced.
 - **`notApplicable: true`** — the category genuinely doesn't apply (e.g. a consumer CPG brand
