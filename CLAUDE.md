@@ -78,13 +78,18 @@ Missing keys are **skipped, not fatal** — Wikidata-only still returns a profil
 their own status in `result.sources`.
 
 ## Key decisions & context
-- **Cost strategy (planned next):** Apollo credits get expensive at DB scale. Plan = flip the
-  waterfall: **search+Haiku primary** (covers ~everything cheaply), **Apollo optional** only for
-  its 5-field moat (headcount/revenue/growth/tech/codes), plus **DB cache w/ TTL**, **lazy
-  on-demand** enrichment, **field-gated** Apollo, dedupe, and a **credit budget/dry-run**. Not
-  built yet — offered as the alternative to the classification work.
+- **Cost strategy — waterfall FLIPPED (2026-08-04):** web research is now the primary source
+  (extracts profile basics: description/industry/categories/foundedYear/HQ/employeeRange/
+  LinkedIn, plus traction facts); **Apollo is opt-in per run** (`--apollo` /
+  `enrich({apollo: true})`, 1 credit/match) for its 5-field moat: exact headcount, revenue,
+  headcount growth, logo, verified socials. Merge precedence: structured sources still win
+  when present; web fills gaps. Remaining cost work: **DB cache w/ TTL**, **lazy on-demand**
+  enrichment, dedupe, **credit budget/dry-run**.
+  ⚠️ Live verification of the flipped waterfall is PENDING — the Anthropic key ran out of
+  credits mid-verification (2026-08-04). Once topped up: rerun the 7 demo companies, confirm
+  web-sourced basics + provenance, refresh the artifact.
 - **Apollo calls cost the user credits** — the MCP tool requires an explicit "1 credit per match"
-  confirmation before every call. Honor that.
+  confirmation before every call, and the module now requires explicit opt-in too. Honor both.
 - **Patents stack:** verified counts/families (EPO+USPTO when keyed) → legal status (granted/
   pending via kind codes) → CPC tech fingerprint → vintage/expiry (priority+20) → one-click
   verify links. Web research fills estimates when keys absent; EPO wins on merge.

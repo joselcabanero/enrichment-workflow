@@ -12,12 +12,12 @@ Uses official APIs only — no scraping of ToS-protected sites.
 | Source | Data | Credential | Free tier |
 | --- | --- | --- | --- |
 | **Wikidata / Wikipedia** | Description, founders, founded date, HQ, industry, website | none | keyless, always on |
-| **Apollo.io** | Firmographics: employees, industry, funding, socials, logo | `APOLLO_API_KEY` | 75 credits/mo |
+| **Apollo.io** | **Opt-in (`--apollo`), 1 credit/match.** Moat: exact headcount, revenue, headcount growth, logo, verified socials | `APOLLO_API_KEY` | 75 credits/mo |
 | **Dealroom** | Funding total, valuation, latest round, investors, growth stage | `DEALROOM_API_KEY` | no free tier (paid key) |
 | **OpenCorporates** | Legal entity: company number, jurisdiction, incorporation, status, officers | `OPENCORPORATES_API_TOKEN` | free token for open-data use |
 | **PatentsView (USPTO)** | US patent grants: count + most-recent by assignee | `PATENTSVIEW_API_KEY` | free key on request |
 | **EPO Open Patent Services** | EP / WO / worldwide filings: verified count, jurisdictions, publications | `EPO_OPS_KEY` + `EPO_OPS_SECRET` | free registration |
-| **Web research (Claude)** | Founders, funding, investors, accelerators, corporate engagement, products, TRL, patent/IP read | `ANTHROPIC_API_KEY` | pay-per-use (default `claude-haiku-4-5`) |
+| **Web research (Claude)** | **Primary source**: profile basics (description, industry, categories, HQ, founded, headcount range, LinkedIn) + founders, funding, investors, accelerators, corporate engagement, products, TRL, patent/IP read | `ANTHROPIC_API_KEY` | pay-per-use (default `claude-haiku-4-5`) |
 
 Missing credentials are **skipped, not fatal** — with no keys at all you still get a full
 Wikidata-based profile. A slow or failing source never blocks the others.
@@ -114,12 +114,14 @@ Build for `node`/publish: `npm run build` (emits `dist/`).
    sources can match by domain instead of a fuzzy name search. It scores candidates by
    official-website match and organization type, so name collisions (e.g. *Vercel* the
    company vs. the French commune) resolve correctly.
-2. **Apollo**, **Dealroom**, **OpenCorporates**, **PatentsView** and **web research** run in
-   parallel with the resolved domain.
-3. Results are **merged** into one profile with per-field precedence — Wikidata for
-   descriptive fields, Apollo for firmographics, Dealroom for funding/valuation/investors,
-   web research for founders/funding/investors when the DBs are silent, OpenCorporates for
-   legal entity, PatentsView for patents — and every contributing source is recorded in
+2. **Web research**, **Dealroom**, **OpenCorporates**, **PatentsView** and **EPO** run in
+   parallel with the resolved domain. **Apollo** joins only on explicit opt-in
+   (`--apollo` / `enrich({ apollo: true })`) — each org match costs a credit, and its unique
+   value is 5 fields: exact headcount, revenue, headcount growth, logo, verified socials.
+3. Results are **merged** into one profile with per-field precedence — structured sources
+   (Wikidata, Apollo, Dealroom, OpenCorporates, EPO/PatentsView) win where present; web
+   research is the primary fallback that keeps small-startup profiles complete (basics +
+   traction) when the DBs are silent — and every contributing source is recorded in
    `provenance`.
 
 The **web research** source uses Claude (Anthropic Messages API) with the server-side
