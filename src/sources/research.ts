@@ -6,10 +6,12 @@ import type { SourceContext, SourceResult } from "./types.js";
 
 /**
  * Web-research source: uses Claude (Anthropic Messages API) with the server-side
- * web_search tool to find the facts structured databases miss — founders,
- * funding rounds, investors, accelerator programs, corporate engagement,
- * products, and a derived Technology Readiness Level — then returns them as
- * structured data. Requires ANTHROPIC_API_KEY; skipped otherwise.
+ * web_search tool to find the facts structured databases miss — profile basics
+ * (description, industry, HQ, founded, headcount range), founders, funding
+ * rounds, investors, accelerator programs, corporate engagement, products, and
+ * a derived Technology Readiness Level — then returns them as structured data.
+ * This is the primary source for small startups the structured DBs don't cover.
+ * Requires ANTHROPIC_API_KEY; skipped otherwise.
  *
  * Model-aware (cost lever): defaults to claude-haiku-4-5 (cheap) and adapts the
  * request to the model tier — Haiku uses the basic web_search tool and omits
@@ -19,6 +21,13 @@ import type { SourceContext, SourceResult } from "./types.js";
  */
 
 interface ResearchJson {
+  description: string | null;
+  industry: string | null;
+  categories: string[];
+  foundedYear: number | null;
+  headquarters: { city: string | null; country: string | null };
+  employeeRange: string | null;
+  linkedinUrl: string | null;
   founders: { name: string }[];
   fundingTotalUsd: number | null;
   latestFundingStage: string | null;
@@ -46,6 +55,21 @@ const SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
+    description: { type: ["string", "null"] },
+    industry: { type: ["string", "null"] },
+    categories: { type: "array", items: { type: "string" } },
+    foundedYear: { type: ["number", "null"] },
+    headquarters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        city: { type: ["string", "null"] },
+        country: { type: ["string", "null"] },
+      },
+      required: ["city", "country"],
+    },
+    employeeRange: { type: ["string", "null"] },
+    linkedinUrl: { type: ["string", "null"] },
     founders: {
       type: "array",
       items: {
@@ -113,6 +137,13 @@ const SCHEMA = {
     },
   },
   required: [
+    "description",
+    "industry",
+    "categories",
+    "foundedYear",
+    "headquarters",
+    "employeeRange",
+    "linkedinUrl",
     "founders",
     "fundingTotalUsd",
     "latestFundingStage",
@@ -129,6 +160,11 @@ const SCHEMA = {
 
 const PROMPT_TAIL =
   `Return, from reputable sources only (null / empty when unknown — do not guess):\n` +
+  `- description: 1-2 factual sentences on what the company makes or does (no marketing language)\n` +
+  `- industry: one short line (e.g. "Food production"); categories: up to 6 short tags (e.g. "Biotechnology", "Alternative proteins")\n` +
+  `- foundedYear; headquarters city + country\n` +
+  `- employeeRange: approximate headcount bracket from public info (e.g. "11-50") — a range, never an exact invented number\n` +
+  `- linkedinUrl: the company's LinkedIn page URL, only if unambiguous\n` +
   `- founders (full names)\n` +
   `- total funding raised to date in USD; the most recent round (stage + date YYYY-MM); known investors\n` +
   `- accelerator / incubator programs the company has joined (e.g. Y Combinator, EIT Food, Eatable Adventures, Start it @KBC)\n` +
@@ -216,6 +252,21 @@ export async function fetchResearch(ctx: SourceContext): Promise<SourceResult> {
     }
 
     const data: Partial<CompanyData> = {};
+    if (parsed.description) data.description = parsed.description;
+    if (parsed.industry) data.industry = parsed.industry;
+    const categories = (parsed.categories ?? []).filter(Boolean);
+    if (categories.length) data.categories = categories;
+    if (typeof parsed.foundedYear === "number" && parsed.foundedYear > 1800) {
+      data.foundedYear = parsed.foundedYear;
+    }
+    if (parsed.headquarters?.city || parsed.headquarters?.country) {
+      data.headquarters = {
+        ...(parsed.headquarters.city ? { city: parsed.headquarters.city } : {}),
+        ...(parsed.headquarters.country ? { country: parsed.headquarters.country } : {}),
+      };
+    }
+    if (parsed.employeeRange) data.employeeRange = parsed.employeeRange;
+    if (parsed.linkedinUrl?.startsWith("http")) data.socialLinks = { linkedin: parsed.linkedinUrl };
     const founders: Person[] = (parsed.founders ?? [])
       .map((f) => f.name)
       .filter((n): n is string => !!n)

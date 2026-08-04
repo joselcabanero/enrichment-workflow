@@ -97,6 +97,13 @@ export interface EnrichInput {
    * IDs from the caller's system. Omit to skip classification.
    */
   taxonomy?: TaxonomyNode[];
+  /**
+   * Opt in to the Apollo.io source for this run. Apollo charges 1 credit per
+   * org match, so it is never called unless explicitly requested — its moat is
+   * exact headcount, revenue, headcount growth, logo, and verified socials;
+   * web research covers the profile basics without it.
+   */
+  apollo?: boolean;
 }
 
 /** A cluster of patents under one CPC subclass (e.g. "A23L" → Foods). */

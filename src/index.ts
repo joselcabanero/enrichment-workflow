@@ -47,7 +47,14 @@ export async function enrich(input: EnrichInput): Promise<EnrichmentResult> {
   // Phase 2: remaining sources in parallel (keyed; skip fast if no credential).
   const [apolloResult, dealroomResult, ocResult, patentsResult, epoResult, researchResult] =
     await Promise.all([
-      settle("apollo", () => fetchApollo(ctx)),
+      // Apollo costs 1 credit per match — only called on explicit opt-in.
+      input.apollo
+        ? settle("apollo", () => fetchApollo(ctx))
+        : Promise.resolve<SourceResult>({
+            source: "apollo",
+            status: "skipped",
+            detail: "gated — pass --apollo (or apollo: true) to spend 1 credit",
+          }),
       settle("dealroom", () => fetchDealroom(ctx)),
       settle("opencorporates", () => fetchOpenCorporates(ctx)),
       settle("patentsview", () => fetchPatents(ctx)),

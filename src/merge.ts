@@ -16,7 +16,7 @@ import type { SourceResult } from "./sources/types.js";
 const PRECEDENCE: Record<string, SourceName[]> = {
   // Descriptive — Wikidata is editorially richer.
   name: ["wikidata", "apollo", "dealroom"],
-  description: ["wikidata", "apollo", "dealroom"],
+  description: ["wikidata", "apollo", "dealroom", "web"],
   founders: ["wikidata", "web", "apollo"],
   ceo: ["wikidata", "apollo"],
   products: ["wikidata", "web"],
@@ -27,14 +27,14 @@ const PRECEDENCE: Record<string, SourceName[]> = {
   productStage: ["web"],
   trl: ["web"],
   foundedDate: ["wikidata", "apollo"],
-  foundedYear: ["wikidata", "apollo"],
+  foundedYear: ["wikidata", "apollo", "web"],
   website: ["wikidata", "apollo", "dealroom"],
   // Firmographics — Apollo/Dealroom are the specialists.
   domain: ["apollo", "dealroom", "wikidata"],
-  industry: ["apollo", "dealroom", "wikidata"],
-  categories: ["apollo", "dealroom", "wikidata"],
+  industry: ["apollo", "dealroom", "wikidata", "web"],
+  categories: ["apollo", "dealroom", "wikidata", "web"],
   employeeCount: ["apollo", "dealroom", "wikidata"],
-  employeeRange: ["apollo", "wikidata"],
+  employeeRange: ["apollo", "wikidata", "web"],
   logoUrl: ["apollo", "wikidata"],
   // Revenue / stock — Apollo is the specialist.
   revenue: ["apollo", "dealroom", "wikidata"],
@@ -59,8 +59,8 @@ const PRECEDENCE: Record<string, SourceName[]> = {
 
 /** Object fields whose sub-fields are merged across sources rather than replaced. */
 const OBJECT_FIELDS: Record<string, SourceName[]> = {
-  headquarters: ["apollo", "dealroom", "wikidata"],
-  socialLinks: ["apollo", "wikidata"],
+  headquarters: ["apollo", "dealroom", "wikidata", "web"],
+  socialLinks: ["apollo", "wikidata", "web"],
   // Patents merge across offices: EPO gives the worldwide count + EP/WO
   // publications, PatentsView adds US grants, web adds areas/status/summary.
   patents: ["epo", "patentsview", "web"],

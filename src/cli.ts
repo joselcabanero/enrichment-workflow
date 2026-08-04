@@ -13,13 +13,17 @@ Options:
   --domain, -d   Optional domain/URL to disambiguate (e.g. stripe.com)
   --taxonomy, -t Path to a taxonomy JSON file ([{id,name,description?,parentId?,dimension?}])
                  to classify the company against (needs ANTHROPIC_API_KEY)
+  --apollo       Spend 1 Apollo credit for its moat fields: exact headcount,
+                 revenue, headcount growth, logo, socials (requires APOLLO_API_KEY;
+                 off by default — web research covers the profile basics)
   --json         Output the full result as JSON
   --md           Output the markdown brief (default)
   --pretty       Pretty-print JSON (with --json)
   --help, -h     Show this help
 
-Sources: Wikidata/Wikipedia (keyless), Apollo.io (APOLLO_API_KEY),
-OpenCorporates (OPENCORPORATES_API_TOKEN). Missing keys are skipped, not fatal.
+Sources: Wikidata/Wikipedia (keyless), web research (ANTHROPIC_API_KEY, primary),
+Apollo.io (opt-in --apollo), OpenCorporates (OPENCORPORATES_API_TOKEN).
+Missing keys are skipped, not fatal.
 
 Examples:
   enrich "Stripe"
@@ -32,6 +36,7 @@ async function main(): Promise<void> {
     options: {
       domain: { type: "string", short: "d" },
       taxonomy: { type: "string", short: "t" },
+      apollo: { type: "boolean", default: false },
       json: { type: "boolean", default: false },
       md: { type: "boolean", default: false },
       pretty: { type: "boolean", default: false },
@@ -51,7 +56,7 @@ async function main(): Promise<void> {
     if (!Array.isArray(parsed)) throw new Error("taxonomy file must be a JSON array of nodes");
     taxonomy = parsed as TaxonomyNode[];
   }
-  const result = await enrich({ name, domain: values.domain, taxonomy });
+  const result = await enrich({ name, domain: values.domain, taxonomy, apollo: values.apollo });
 
   if (values.json) {
     const { markdown, ...rest } = result; // omit markdown from JSON payload
