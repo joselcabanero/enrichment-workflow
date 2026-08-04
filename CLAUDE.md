@@ -32,9 +32,19 @@ not applicable (previously hallucinated "Supervised Learning"); Cocuus tech stac
 the specific `ts-mt-mg-foodprint` leaf. The model now abstains more (several needs-review) —
 by design.
 
-Next: user sanity-review of v2 assignments, then the cost-strategy work (see Key decisions
-below). If abstention is too aggressive, the lever is the GUIDANCE prompt in
-`src/categorize.ts`, not the confidence floor.
+**Classification v3 (2026-08-04, stability):** `CLASSIFY_VOTES` (default 5) self-consistency
+votes with lineage-aware majority aggregation (parent+descendant votes = one lineage →
+most specific term; contested siblings → dominant sibling or shared parent; runner-up
+lineages with ≥2 primary votes become secondaries; other secondaries need unanimity).
+Prompt: market/use-case dimensions ~always apply (abstention there is wrong), tech dimensions
+often don't; no overlapping siblings; secondaries only for what the company ITSELF does.
+CLI `--reclassify <saved.json>` classifies a stored profile without re-running sources —
+the repeatable path for DB use. Known limit: for genuinely ~50/50 sibling pairs (e.g.
+`ts-mt-mg-3dbio` vs `ts-mt-mg-foodprint` for Cocuus) output oscillates within the lineage
+(dominant sibling ↔ parent) — full determinism requires classify-once-and-store (DB cache,
+future). Those near-duplicate leaves are also taxonomy feedback for Jarvis DB.
+
+Next: cost-strategy remainder (DB cache w/ TTL, lazy enrichment, dedupe, credit budget).
 
 ## Build / run
 ```bash

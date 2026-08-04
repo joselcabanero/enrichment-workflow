@@ -67,15 +67,27 @@ file, so results join back to your DB. A JSON-schema `enum` constrains the model
 it cannot return a category you didn't define. Needs `ANTHROPIC_API_KEY`; classification uses
 `CLASSIFY_MODEL` (default `claude-sonnet-5` — separate from the cheaper web-research model).
 
-Classification is **evidence-gated**: a term is assigned only when the enriched profile
-explicitly supports it (rationales must point to the evidence), and each result is one of three
-outcomes rather than a forced guess:
+Classification is **evidence-gated and vote-stabilized**: a term is assigned only when the
+enriched profile explicitly supports it (rationales must point to the evidence), the classify
+call runs `CLASSIFY_VOTES` times (default 5) and only majority-supported terms survive —
+votes for a parent and its descendant count as one lineage (resolved to the most specific
+term), contested sibling leaves resolve to the dominant one or their shared parent, and
+secondaries require unanimity. Each result is one of three outcomes rather than a forced
+guess:
 
 - **classified** — `primary` (+ optional `secondary`) with confidence and rationale.
   Low-confidence assignments are discarded in post-processing, never surfaced.
 - **`notApplicable: true`** — the category genuinely doesn't apply (e.g. a consumer CPG brand
   has no technology stack). A valid answer, not an error.
 - **`needsReview: true`** — evidence too thin to decide; route to a human.
+
+For repeatable results (e.g. DB pipelines), enrich once, store the JSON, and re-classify from
+the stored profile — fixed evidence plus voting makes categories stable across runs:
+
+```bash
+enrich "Cocuus" --domain cocuus.com --json > cocuus.json      # research once
+enrich --reclassify cocuus.json --taxonomy ./tax.json --json  # classify (repeatable)
+```
 
 ### Multi-dimensional taxonomies
 

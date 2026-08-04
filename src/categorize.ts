@@ -165,6 +165,7 @@ interface Lineage {
   depth: (id: string) => number;
   parentOf: (id: string) => string | undefined;
   nameOf: (id: string) => string | undefined;
+  ancestorsOf: (id: string) => string[];
 }
 
 function buildLineage(nodes: TaxonomyNode[]): Lineage {
@@ -184,6 +185,7 @@ function buildLineage(nodes: TaxonomyNode[]): Lineage {
     depth: (id) => ancestors(id).length,
     parentOf: (id) => parent.get(id),
     nameOf: (id) => names.get(id),
+    ancestorsOf: ancestors,
   };
 }
 
@@ -208,45 +210,41 @@ function groupByLineage(picks: CategoryAssignment[], lineage: Lineage): Category
 }
 
 /**
- * Resolve a lineage group to one assignment. Within one ancestor/descendant
- * chain, the most specific term wins. When the group holds contested siblings
- * (merged because votes split between them), one sibling must clearly dominate
- * (≥2/3 of the group) to win outright; otherwise resolve to their shared
- * parent — the honest level of specificity for a genuinely split vote.
+ * Resolve a lineage group to one assignment: the DEEPEST term whose subtree
+ * (the term itself plus its descendants) carries a majority of the group's
+ * votes. A minority child can't override the majority's chosen granularity,
+ * and votes split across siblings roll up to their common ancestor — the
+ * honest level of specificity for the actual agreement.
  */
 function resolveGroup(group: CategoryAssignment[], lineage: Lineage): CategoryAssignment {
-  const byId = new Map<string, CategoryAssignment[]>();
+  const majority = Math.floor(group.length / 2) + 1;
+  const candidates = new Set<string>();
   for (const p of group) {
-    const list = byId.get(p.id) ?? [];
-    list.push(p);
-    byId.set(p.id, list);
+    candidates.add(p.id);
+    for (const a of lineage.ancestorsOf(p.id)) candidates.add(a);
   }
-  const distinct = [...byId.keys()];
-  const contestedSiblings =
-    distinct.length > 1 && distinct.some((a) => distinct.some((b) => a !== b && !lineage.related(a, b)));
-  if (contestedSiblings) {
-    const ranked = [...byId.entries()].sort(
-      (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]),
-    );
-    const [topId, topPicks] = ranked[0]!;
-    if (topPicks.length * 3 >= group.length * 2) {
-      return { ...topPicks[0]!, confidence: minConf(group.map((p) => p.confidence)) };
-    }
-    const parentId = lineage.parentOf(topId);
-    const parentName = parentId ? lineage.nameOf(parentId) : undefined;
-    if (parentId && parentName) {
-      return {
-        id: parentId,
-        name: parentName,
-        confidence: minConf(group.map((p) => p.confidence)),
-        rationale: `Votes split between sibling terms (${distinct.join(", ")}) — resolved to their shared parent.`,
-      };
-    }
+  const support = (c: string) =>
+    group.filter((p) => p.id === c || lineage.ancestorsOf(p.id).includes(c)).length;
+  const best = [...candidates]
+    .filter((c) => support(c) >= majority)
+    .sort((a, b) => lineage.depth(b) - lineage.depth(a) || a.localeCompare(b))[0];
+  const confidence = minConf(group.map((p) => p.confidence));
+  if (!best) {
+    // No majority anywhere in the tree (disjoint roots) — deterministic fallback
+    // to the largest sub-lineage's pick.
+    const deepest = [...group].sort(
+      (a, b) => lineage.depth(b.id) - lineage.depth(a.id) || a.id.localeCompare(b.id),
+    )[0]!;
+    return { ...deepest, confidence };
   }
-  const deepest = [...group].sort(
-    (a, b) => lineage.depth(b.id) - lineage.depth(a.id) || a.id.localeCompare(b.id),
-  )[0]!;
-  return { ...deepest, confidence: minConf(group.map((p) => p.confidence)) };
+  const exact = group.find((p) => p.id === best);
+  if (exact) return { ...exact, confidence };
+  return {
+    id: best,
+    name: lineage.nameOf(best) ?? best,
+    confidence,
+    rationale: `Votes split across more specific terms (${[...new Set(group.map((p) => p.id))].join(", ")}) — resolved to the deepest majority-supported ancestor.`,
+  };
 }
 
 /**
