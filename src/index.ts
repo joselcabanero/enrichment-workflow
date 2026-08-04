@@ -24,6 +24,9 @@ export type {
   SourceName,
   SourceStatus,
 } from "./types.js";
+// Re-exported so callers can (re-)classify a stored profile without re-running
+// the sources — classification from fixed evidence is stable across runs.
+export { categorize } from "./categorize.js";
 
 /**
  * Enrich a startup by name (and optional domain) from free-tier sources.
@@ -72,6 +75,10 @@ export async function enrich(input: EnrichInput): Promise<EnrichmentResult> {
     researchResult,
   ];
   const { company, provenance } = mergeResults(results);
+  // No structured source may know the company at all (small startups): keep
+  // the caller's name so the profile is self-describing. No provenance entry —
+  // it's the input echoed back, not sourced data.
+  if (!company.name) company.name = name;
 
   // Deterministic patent-verification links — always available, no API cost.
   const searchName = company.name ?? name;

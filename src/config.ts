@@ -43,6 +43,8 @@ export interface Config {
   researchModel?: string;
   /** Model for taxonomy classification; defaults to claude-sonnet-5. */
   classifyModel?: string;
+  /** Self-consistency votes per classification (1-5); defaults to 3. */
+  classifyVotes?: number;
 }
 
 function clean(v: string | undefined): string | undefined {
@@ -66,5 +68,8 @@ export function getConfig(): Config {
     // Classification judges a ~400-term taxonomy against sparse evidence —
     // worth a stronger model than the research default.
     classifyModel: clean(process.env.CLASSIFY_MODEL) ?? "claude-sonnet-5",
+    // Majority voting across independent classify calls stabilizes borderline
+    // assignments across runs. 1 = single call (cheapest).
+    classifyVotes: Number(clean(process.env.CLASSIFY_VOTES) ?? "5") || 5,
   };
 }

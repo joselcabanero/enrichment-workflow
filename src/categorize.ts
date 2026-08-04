@@ -157,6 +157,164 @@ function toResult(parsed: DimJson, nodes: TaxonomyNode[]): Omit<DimensionClassif
   return result;
 }
 
+type DimVote = Omit<DimensionClassification, "dimension">;
+
+/** Ancestor/descendant helpers over one dimension's nodes. */
+interface Lineage {
+  related: (a: string, b: string) => boolean;
+  depth: (id: string) => number;
+  parentOf: (id: string) => string | undefined;
+  nameOf: (id: string) => string | undefined;
+}
+
+function buildLineage(nodes: TaxonomyNode[]): Lineage {
+  const parent = new Map(nodes.map((n) => [n.id, n.parentId]));
+  const names = new Map(nodes.map((n) => [n.id, n.name]));
+  const ancestors = (id: string): string[] => {
+    const out: string[] = [];
+    let p = parent.get(id);
+    while (p) {
+      out.push(p);
+      p = parent.get(p);
+    }
+    return out;
+  };
+  return {
+    related: (a, b) => a === b || ancestors(a).includes(b) || ancestors(b).includes(a),
+    depth: (id) => ancestors(id).length,
+    parentOf: (id) => parent.get(id),
+    nameOf: (id) => names.get(id),
+  };
+}
+
+const CONF_ORDER = { low: 0, medium: 1, high: 2 } as const;
+
+/** The weaker of a set of confidences (majority agreement shouldn't inflate certainty). */
+function minConf(confs: (CategoryAssignment["confidence"] | undefined)[]): CategoryAssignment["confidence"] {
+  const known = confs.filter((c): c is NonNullable<CategoryAssignment["confidence"]> => !!c);
+  if (!known.length) return "medium";
+  return known.sort((a, b) => CONF_ORDER[a] - CONF_ORDER[b])[0];
+}
+
+/** Group assignments so that a term and its ancestors/descendants count as one lineage. */
+function groupByLineage(picks: CategoryAssignment[], lineage: Lineage): CategoryAssignment[][] {
+  const groups: CategoryAssignment[][] = [];
+  for (const pick of picks) {
+    const group = groups.find((g) => g.some((m) => lineage.related(m.id, pick.id)));
+    if (group) group.push(pick);
+    else groups.push([pick]);
+  }
+  return groups;
+}
+
+/**
+ * Resolve a lineage group to one assignment. Within one ancestor/descendant
+ * chain, the most specific term wins. When the group holds contested siblings
+ * (merged because votes split between them), one sibling must clearly dominate
+ * (≥2/3 of the group) to win outright; otherwise resolve to their shared
+ * parent — the honest level of specificity for a genuinely split vote.
+ */
+function resolveGroup(group: CategoryAssignment[], lineage: Lineage): CategoryAssignment {
+  const byId = new Map<string, CategoryAssignment[]>();
+  for (const p of group) {
+    const list = byId.get(p.id) ?? [];
+    list.push(p);
+    byId.set(p.id, list);
+  }
+  const distinct = [...byId.keys()];
+  const contestedSiblings =
+    distinct.length > 1 && distinct.some((a) => distinct.some((b) => a !== b && !lineage.related(a, b)));
+  if (contestedSiblings) {
+    const ranked = [...byId.entries()].sort(
+      (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]),
+    );
+    const [topId, topPicks] = ranked[0]!;
+    if (topPicks.length * 3 >= group.length * 2) {
+      return { ...topPicks[0]!, confidence: minConf(group.map((p) => p.confidence)) };
+    }
+    const parentId = lineage.parentOf(topId);
+    const parentName = parentId ? lineage.nameOf(parentId) : undefined;
+    if (parentId && parentName) {
+      return {
+        id: parentId,
+        name: parentName,
+        confidence: minConf(group.map((p) => p.confidence)),
+        rationale: `Votes split between sibling terms (${distinct.join(", ")}) — resolved to their shared parent.`,
+      };
+    }
+  }
+  const deepest = [...group].sort(
+    (a, b) => lineage.depth(b.id) - lineage.depth(a.id) || a.id.localeCompare(b.id),
+  )[0]!;
+  return { ...deepest, confidence: minConf(group.map((p) => p.confidence)) };
+}
+
+/**
+ * Combine N independent votes for one dimension into a single result. An
+ * outcome or term counts only when a majority of votes agree on it — where a
+ * vote for a parent and a vote for its descendant agree (same lineage, counted
+ * together, resolved to the most specific term). Classified votes that
+ * genuinely disagree on the primary lineage collapse to needsReview.
+ */
+function aggregate(votesIn: DimVote[], lineage: Lineage): DimVote {
+  if (votesIn.length === 1) return votesIn[0]!;
+  const majority = Math.floor(votesIn.length / 2) + 1;
+  const naCount = votesIn.filter((v) => v.notApplicable).length;
+  if (naCount >= majority) return { notApplicable: true };
+  const classified = votesIn.filter((v) => v.primary);
+  if (classified.length < majority) return { needsReview: true };
+
+  // Deterministic ordering: vote count, then total confidence, then id — so
+  // identical vote multisets always aggregate identically.
+  const groupScore = (g: CategoryAssignment[]) =>
+    g.reduce((s, p) => s + (p.confidence ? CONF_ORDER[p.confidence] : 1), 0);
+  const groupId = (g: CategoryAssignment[]) => [...g].map((p) => p.id).sort()[0]!;
+  // Merge primary groups whose representatives are siblings under the same
+  // parent: when votes split between two near-synonym leaves (e.g. Food 3D
+  // Printing vs 3D Bioprinting), that's one answer, not two.
+  const rawGroups = groupByLineage(classified.map((v) => v.primary!), lineage);
+  const merged: CategoryAssignment[][] = [];
+  for (const g of rawGroups) {
+    const gParent = lineage.parentOf(groupId(g));
+    const sibling = gParent
+      ? merged.find((m) => m.some((p) => lineage.parentOf(p.id) === gParent))
+      : undefined;
+    if (sibling) sibling.push(...g);
+    else merged.push(g);
+  }
+  const primaryGroups = merged.sort(
+    (a, b) =>
+      b.length - a.length || groupScore(b) - groupScore(a) || groupId(a).localeCompare(groupId(b)),
+  );
+  if (primaryGroups[0]!.length < majority) return { needsReview: true };
+  const primary = resolveGroup(primaryGroups[0]!, lineage);
+  // A company can genuinely straddle two lineages (e.g. it makes plant-based
+  // products AND sells the machinery). A runner-up lineage with real support
+  // (≥2 primary votes) is part of the company's identity — keep it as a
+  // secondary instead of letting sampling noise decide whether it appears.
+  const runnersUp = primaryGroups
+    .slice(1)
+    .filter((g) => g.length >= 2)
+    .map((g) => resolveGroup(g, lineage));
+
+  // Secondaries require unanimity among classified votes — they're optional
+  // extras, so a term that only sometimes makes the cut is exactly the weak,
+  // jittery kind the caller shouldn't see.
+  const secPicks = classified
+    .flatMap((v) => v.secondary ?? [])
+    .filter(
+      (s) =>
+        !lineage.related(s.id, primary.id) && !runnersUp.some((r) => lineage.related(s.id, r.id)),
+    );
+  const secondary = [
+    ...runnersUp,
+    ...groupByLineage(secPicks, lineage)
+      .filter((g) => g.length >= classified.length)
+      .map((g) => resolveGroup(g, lineage)),
+  ];
+  return { primary, ...(secondary.length ? { secondary } : {}) };
+}
+
 const GUIDANCE =
   `Assign a term ONLY when the EVIDENCE above explicitly supports it — each rationale must ` +
   `point to the specific evidence (a product, a stated technology, a patent title or area). ` +
@@ -172,7 +330,10 @@ const GUIDANCE =
   `and its ancestor. If the evidence clearly names a technology but no leaf matches it exactly, ` +
   `assign the nearest parent term that covers it (e.g. evidence of UV spectroscopy with no UV ` +
   `leaf → the spectroscopy parent) rather than abstaining — abstention is for missing evidence, ` +
-  `not missing leaves. Secondary terms only for genuine, material cross-cutting fit (usually 0-2). ` +
+  `not missing leaves. Never assign overlapping sibling terms that describe essentially the same ` +
+  `capability — pick the single best one. Secondary terms only for genuine, material ` +
+  `cross-cutting fit (usually 0-2), and only when the evidence shows the company ITSELF does ` +
+  `that thing — not that it is adjacent to it, uses its outputs, or would benefit from it. ` +
   `Give a confidence and a one-line rationale for each; use "low" confidence when you are ` +
   `speculating (low-confidence assignments are discarded).\n` +
   `- "not_applicable": the dimension genuinely does not apply — many companies, especially ` +
@@ -180,6 +341,11 @@ const GUIDANCE =
   `demonstrably build or operationally rely on a technology as a differentiator, return ` +
   `not_applicable rather than a guess.\n` +
   `- "needs_review": the evidence is too thin to decide either way.\n` +
+  `Calibrate abstention to the dimension's nature: for a dimension describing the market ` +
+  `problem or use case a company addresses, every commercial company addresses SOME problem — ` +
+  `infer it from what the company sells and to whom, prefer the best-supported term over ` +
+  `abstaining, and treat not_applicable as essentially never correct there. For a dimension ` +
+  `describing enabling technology, the opposite holds: many companies genuinely have none.\n` +
   `When outcome is not_applicable or needs_review, set primaryId=null and secondary=[] — ` +
   `abstain fully, never return a guess alongside.`;
 
@@ -188,7 +354,7 @@ export async function categorize(
   taxonomy: TaxonomyNode[],
 ): Promise<Classification | undefined> {
   if (!taxonomy?.length) return undefined;
-  const { anthropicApiKey, classifyModel } = getConfig();
+  const { anthropicApiKey, classifyModel, classifyVotes } = getConfig();
   if (!anthropicApiKey) return undefined;
 
   const model = classifyModel ?? "claude-sonnet-5";
@@ -248,8 +414,8 @@ export async function categorize(
   };
   if (!basic) params.thinking = { type: "adaptive" };
 
-  try {
-    const client = new Anthropic({ apiKey: anthropicApiKey });
+  const client = new Anthropic({ apiKey: anthropicApiKey });
+  const callOnce = async (): Promise<Record<string, DimJson> | DimJson> => {
     const response = await client.messages.create(params);
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -259,26 +425,36 @@ export async function categorize(
       .replace(/^```(?:json)?/i, "")
       .replace(/```$/, "")
       .trim();
-    const parsed = JSON.parse(text);
+    return JSON.parse(text);
+  };
 
-    if (multi) {
-      const dimensions: DimensionClassification[] = dimEntries.map(([slug, nodes]) => ({
-        dimension: slug,
-        ...toResult(
-          parsed[slug] ?? { outcome: "needs_review", primaryId: null, primaryConfidence: null, primaryRationale: null, secondary: [] },
-          nodes,
-        ),
-      }));
-      return {
-        dimensions,
-        needsReview: dimensions.some((d) => d.needsReview),
-      };
-    }
-    return toResult(parsed as DimJson, flatNodes);
-  } catch (err) {
+  // Self-consistency: run the (identical) classify call N times and keep only
+  // what a majority of votes agree on. Sampling noise on borderline cases
+  // averages out; a single-vote fluke can no longer set a category.
+  const votes = Math.min(5, Math.max(1, classifyVotes ?? 3));
+  const settled = await Promise.allSettled(Array.from({ length: votes }, callOnce));
+  const ok = settled.filter(
+    (s): s is PromiseFulfilledResult<Record<string, DimJson> | DimJson> => s.status === "fulfilled",
+  );
+  if (!ok.length) {
+    const first = settled[0] as PromiseRejectedResult | undefined;
+    const err = first?.reason;
     // Classification is best-effort — never fail the enrichment over it. But do
     // surface the cause on stderr so failures aren't silently swallowed.
     console.error(`[categorize] classification failed: ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
+
+  const EMPTY: DimJson = { outcome: "needs_review", primaryId: null, primaryConfidence: null, primaryRationale: null, secondary: [] };
+  if (multi) {
+    const dimensions: DimensionClassification[] = dimEntries.map(([slug, nodes]) => ({
+      dimension: slug,
+      ...aggregate(ok.map((s) => toResult((s.value as Record<string, DimJson>)[slug] ?? EMPTY, nodes)), buildLineage(nodes)),
+    }));
+    return {
+      dimensions,
+      needsReview: dimensions.some((d) => d.needsReview),
+    };
+  }
+  return aggregate(ok.map((s) => toResult(s.value as DimJson, flatNodes)), buildLineage(flatNodes));
 }
