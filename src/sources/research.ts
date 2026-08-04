@@ -21,33 +21,33 @@ import type { SourceContext, SourceResult } from "./types.js";
  */
 
 interface ResearchJson {
-  description: string | null;
-  industry: string | null;
+  description: string;
+  industry: string;
   categories: string[];
   foundedYear: number | null;
-  headquarters: { city: string | null; country: string | null };
-  employeeRange: string | null;
-  linkedinUrl: string | null;
+  headquarters: { city: string; country: string };
+  employeeRange: string;
+  linkedinUrl: string;
   founders: { name: string }[];
   fundingTotalUsd: number | null;
-  latestFundingStage: string | null;
-  lastFundingDate: string | null;
+  latestFundingStage: string;
+  lastFundingDate: string;
   investors: string[];
   accelerators: string[];
-  corporatePartners: { name: string; relationship: string | null }[];
+  corporatePartners: { name: string; relationship: string }[];
   products: string[];
-  productStage: string | null;
-  trl: { level: number | null; rationale: string | null; confidence: string | null };
+  productStage: string;
+  trl: { level: number | null; rationale: string; confidence: string };
   patents: {
     holdsPatents: boolean | null;
     estimatedCount: number | null;
     earliestFilingYear: number | null;
-    status: string | null;
+    status: string;
     jurisdictions: string[];
     areas: string[];
-    cpc: { code: string; label: string | null }[];
+    cpc: { code: string; label: string }[];
     notable: string[];
-    summary: string | null;
+    summary: string;
   };
 }
 
@@ -55,21 +55,21 @@ const SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    description: { type: ["string", "null"] },
-    industry: { type: ["string", "null"] },
+    description: { type: "string" },
+    industry: { type: "string" },
     categories: { type: "array", items: { type: "string" } },
     foundedYear: { type: ["number", "null"] },
     headquarters: {
       type: "object",
       additionalProperties: false,
       properties: {
-        city: { type: ["string", "null"] },
-        country: { type: ["string", "null"] },
+        city: { type: "string" },
+        country: { type: "string" },
       },
       required: ["city", "country"],
     },
-    employeeRange: { type: ["string", "null"] },
-    linkedinUrl: { type: ["string", "null"] },
+    employeeRange: { type: "string" },
+    linkedinUrl: { type: "string" },
     founders: {
       type: "array",
       items: {
@@ -80,8 +80,8 @@ const SCHEMA = {
       },
     },
     fundingTotalUsd: { type: ["number", "null"] },
-    latestFundingStage: { type: ["string", "null"] },
-    lastFundingDate: { type: ["string", "null"] },
+    latestFundingStage: { type: "string" },
+    lastFundingDate: { type: "string" },
     investors: { type: "array", items: { type: "string" } },
     accelerators: { type: "array", items: { type: "string" } },
     corporatePartners: {
@@ -91,20 +91,20 @@ const SCHEMA = {
         additionalProperties: false,
         properties: {
           name: { type: "string" },
-          relationship: { type: ["string", "null"] },
+          relationship: { type: "string" },
         },
         required: ["name", "relationship"],
       },
     },
     products: { type: "array", items: { type: "string" } },
-    productStage: { type: ["string", "null"] },
+    productStage: { type: "string" },
     trl: {
       type: "object",
       additionalProperties: false,
       properties: {
         level: { type: ["number", "null"] },
-        rationale: { type: ["string", "null"] },
-        confidence: { type: ["string", "null"] },
+        rationale: { type: "string" },
+        confidence: { type: "string" },
       },
       required: ["level", "rationale", "confidence"],
     },
@@ -115,7 +115,7 @@ const SCHEMA = {
         holdsPatents: { type: ["boolean", "null"] },
         estimatedCount: { type: ["number", "null"] },
         earliestFilingYear: { type: ["number", "null"] },
-        status: { type: ["string", "null"] },
+        status: { type: "string" },
         jurisdictions: { type: "array", items: { type: "string" } },
         areas: { type: "array", items: { type: "string" } },
         cpc: {
@@ -125,13 +125,13 @@ const SCHEMA = {
             additionalProperties: false,
             properties: {
               code: { type: "string" },
-              label: { type: ["string", "null"] },
+              label: { type: "string" },
             },
             required: ["code", "label"],
           },
         },
         notable: { type: "array", items: { type: "string" } },
-        summary: { type: ["string", "null"] },
+        summary: { type: "string" },
       },
       required: ["holdsPatents", "estimatedCount", "earliestFilingYear", "status", "jurisdictions", "areas", "cpc", "notable", "summary"],
     },
@@ -159,7 +159,7 @@ const SCHEMA = {
 } as const;
 
 const PROMPT_TAIL =
-  `Return, from reputable sources only (null / empty when unknown — do not guess):\n` +
+  `Return, from reputable sources only. For unknown values use an empty string "" (or null for numbers, empty arrays for lists) — do not guess:\n` +
   `- description: 1-2 factual sentences on what the company makes or does (no marketing language)\n` +
   `- industry: one short line (e.g. "Food production"); categories: up to 6 short tags (e.g. "Biotechnology", "Alternative proteins")\n` +
   `- foundedYear; headquarters city + country\n` +
@@ -321,7 +321,7 @@ export async function fetchResearch(ctx: SourceContext): Promise<SourceResult> {
       for (const entry of pj.cpc ?? []) {
         const sub = toSubclass(entry?.code ?? "");
         if (sub && !cpc.some((x) => x.code === sub)) {
-          cpc.push({ code: sub, label: cpcLabel(sub) ?? entry.label ?? undefined });
+          cpc.push({ code: sub, label: cpcLabel(sub) ?? (entry.label || undefined) });
         }
       }
       if (cpc.length) pat.cpc = cpc;
